@@ -8,13 +8,14 @@ CSV files collected by Open Canada.
 
 ### Setup:
 
-Download the source code from [GitHub]() and run the following commands:
+Clone and download the source code from [GitHub]() and run the following commands:
 
 ```bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
+Note that Python 3 is required for the application to run.
 
 Copy the `settings.example.py` file to `settings.py` and change the settings to reflect
 your environment.
@@ -23,7 +24,7 @@ Then run the following commands:
 
 ```bash
 python manage.py makemigrations
-python manage.py sqlmigrate pd_tracker 0001
+python manage.py sqlmigrate tracker 0001
 python manage.py migrate
 python manage.py collectstatic --noinput
 ```

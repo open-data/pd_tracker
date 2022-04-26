@@ -56,6 +56,8 @@ class Command(BaseCommand):
                             help='The date of the comparison target. Would normally correspond to the data of the second file.', required=True)
         parser.add_argument('-r', '--report_file', type=str, help='The PD report file. Appends to the file if it already exists',
                             required=False, default="")
+        parser.add_argument('-u', '--vacuum', action='store_true', help='Vacuum the SQLite database after the comparison is complete. Don\'t vacuum if you are running this command from a batch job.',
+                            required=False, default=False)
 
     def handle(self, *args, **options):
 
@@ -148,7 +150,7 @@ class Command(BaseCommand):
             results = cur.execute(statement_ruthere)
             if results.fetchone() is not None:
                 self.logger.info(f'Deleting rows from {table_name} based on {options["log_date"]}')
-                statement_delete = f'DELETE FROM "{table_name}" WHERE log_date = "{options["log_date"]}"'
+                statement_delete = f'DELETE FROM "{table_name}" WHERE log_date = "{options["log_date"].strftime("%Y-%m-%d")}"'
                 cur.execute(statement_delete)
 
             primary_key.append('log_date')
@@ -221,7 +223,8 @@ class Command(BaseCommand):
         finally:
             for table in temp_tables:
                 cur.execute(f'DROP TABLE {table}')
-            cur.execute('VACUUM')
+            if options['vacuum']:
+                cur.execute('VACUUM')
             conn.close()
 
 
