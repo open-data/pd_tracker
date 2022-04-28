@@ -10,8 +10,6 @@ import tempfile
 
 
 parser = argparse.ArgumentParser(description="Import call the csv files in a directory.")
-parser.add_argument("-r", "--report_dir", type=pathlib.Path, required=True,
-                    help="The directory containing archived warehouse reports CSV files.")
 parser.add_argument("-d", "--data_dir", type=pathlib.Path, required=True,
                     help="The directory to write out the warehouse reports CSV files.")
 parser.add_argument("-1", "--latest_only", action='store_true', required=False, default=False,

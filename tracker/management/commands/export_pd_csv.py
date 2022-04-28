@@ -44,11 +44,17 @@ class Command(BaseCommand):
         table_name = options['table']
         try:
             if table_name == 'all':
-                table_list = PDTableField.objects.all().values_list('table_id', flat=True).distinct()
+                # Obtain a set if the unique table names derived from the fields table
+                table_qs = PDTableField.objects.all()
+                table_list = []
+                for table in table_qs:
+                    table_list.append(table.table_id)
+                table_list = set(table_list)
+
+                # Export each table
                 for table in table_list:
-                    norm_table = table.replace('-', '_')
-                    table_exists = pd.read_sql(f"SELECT name FROM sqlite_master WHERE type='table' and name='{norm_table}'", self.conn)
-                    if  table_exists.empty:
+                    table_exists = pd.read_sql(f"SELECT name FROM sqlite_master WHERE type='table' and name='{table}'", self.conn)
+                    if table_exists.empty:
                         continue
                     self.export_type(table, options['report_dir'])
             else:
