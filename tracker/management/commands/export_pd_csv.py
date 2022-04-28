@@ -11,7 +11,7 @@ class Command(BaseCommand):
     help = "Export PD data to CSV. Can export all types or a single type."
     logger = logging.getLogger(__name__)
     # Connect to the SQLite database and generate the temporary table names
-    conn = sqlite3.connect(settings.DATABASES['default']['NAME'])
+    conn = sqlite3.connect(str(settings.DATABASES['default']['NAME']))
 
     def export_type(self, table_name, report_dir):
 
@@ -27,7 +27,7 @@ class Command(BaseCommand):
 
         i = 0
         report_file = os.path.join(report_dir, f'{table_name}_activity.csv')
-        for chunk in pd.read_sql(f'SELECT * FROM {table_name}', self.conn, index_col=primary_key, chunksize=1000):
+        for chunk in pd.read_sql(f'SELECT * FROM "{table_name}"', self.conn, index_col=primary_key, chunksize=1000):
             if i == 0:
                 chunk.to_csv(report_file, index=True, header=True, mode='w')
                 i = chunk.index.size
@@ -46,6 +46,10 @@ class Command(BaseCommand):
             if table_name == 'all':
                 table_list = PDTableField.objects.all().values_list('table_id', flat=True).distinct()
                 for table in table_list:
+                    norm_table = table.replace('-', '_')
+                    table_exists = pd.read_sql(f"SELECT name FROM sqlite_master WHERE type='table' and name='{norm_table}'", self.conn)
+                    if  table_exists.empty:
+                        continue
                     self.export_type(table, options['report_dir'])
             else:
                 self.export_type(table_name, options['report_dir'])

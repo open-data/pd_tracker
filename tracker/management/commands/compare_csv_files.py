@@ -82,7 +82,7 @@ class Command(BaseCommand):
                 non_key_fields.append(pd_field.field_name)
 
         # Connect to the SQLite database and generate the temporary table names
-        conn = sqlite3.connect(settings.DATABASES['default']['NAME'])
+        conn = sqlite3.connect(str(settings.DATABASES['default']['NAME']))
         cur = conn.cursor()
         cur.execute("VACUUM")
         cur.execute("PRAGMA synchronous = FULL")
