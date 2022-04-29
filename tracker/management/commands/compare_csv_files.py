@@ -61,7 +61,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
 
-        table_name = options['table']
+        table_name = options['table'].replace('-', '_')
         csv_files = [options['first_file'], options['second_file']]
 
         # Look up the primary key for the table from the database
@@ -86,6 +86,7 @@ class Command(BaseCommand):
         cur = conn.cursor()
         cur.execute("VACUUM")
         cur.execute("PRAGMA synchronous = FULL")
+        cur.execute("PRAGMA journal_mode = WAL")
 
         temp_tables = ["{0}_{1}".format(table_name, options["source_date"].strftime('%Y_%m_%d')).replace('-', '_'),
                        "{0}_{1}".format(table_name, options["log_date"].strftime('%Y_%m_%d')).replace('-', '_')]
@@ -96,7 +97,7 @@ class Command(BaseCommand):
                 cur.execute(f'DROP TABLE IF EXISTS {table}')
 
             # Read the CSV files into the temporary tables
-            chunk_size = 10000
+            chunk_size = 100
             i = 0
             for file in csv_files:
                 self.logger.info(f'Reading {csv_files[i]} into {temp_tables[i]}')
@@ -104,6 +105,7 @@ class Command(BaseCommand):
                 for chunk in pd.read_csv(file, chunksize=chunk_size, delimiter=","):
                     chunk.columns = chunk.columns.str.replace(' ', '_')  # replacing spaces with underscores for column names
                     chunk.to_sql(name=temp_tables[i - 1], con=conn, if_exists='append')
+                    sleep(0.2)
 
             # Verify that the columns in both tables match
             temp_columns = []
@@ -159,10 +161,12 @@ class Command(BaseCommand):
             df1['log_date'] = options['log_date'].strftime('%Y-%m-%d')
             df1['log_activity'] = 'D'
             df1.set_index(primary_key)
+            sleep(0.1)
 
             df2['log_date'] = options['log_date'].strftime('%Y-%m-%d')
             df2['log_activity'] = 'A'
             df2.set_index(primary_key)
+            sleep(0.1)
 
             # if the export file name is not provided, then generate one using the table name abd the default export directory
             report_file = options['report_file'] if options['report_file'] else ""
@@ -174,12 +178,14 @@ class Command(BaseCommand):
                 if report_file:
                     df1.to_csv(report_file, mode='a', index=False, header=first_time)
                 df1.to_sql(table_name, con=conn, if_exists='append')
+                sleep(0.1)
 
             first_time = False if os.path.exists(report_file) else True
             if len(df2.index) > 0:
                 if report_file:
                     df2.to_csv(report_file, mode='a', index=False, header=first_time)
                 df2.to_sql(table_name, con=conn, if_exists='append')
+                sleep(0.1)
 
             change_query = ""
             for field in non_key_fields:
@@ -192,6 +198,7 @@ class Command(BaseCommand):
             self.logger.info('Checking for changed rows based on data key.')
 
             df3 = pd.read_sql(statement3, conn,)
+
             df3['log_date'] = options['log_date'].strftime('%Y-%m-%d')
             df3['log_activity'] = 'C'
             df3.set_index(primary_key)
@@ -200,7 +207,7 @@ class Command(BaseCommand):
                 if report_file:
                     df3.to_csv(report_file, mode='a', index=False, header=first_time)
                 df3.to_sql(table_name, con=conn, if_exists='append')
-
+                sleep(0.1)
             local_tz = pytz.timezone(settings.TIME_ZONE)
             local_now = local_tz.localize(datetime.now())
             PDRunLog.objects.create(

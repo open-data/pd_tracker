@@ -64,7 +64,7 @@ try:
                 #print(f'Compare {csv_from} for {from_date} to {csv_to} {to_date}')
                 print(f' Running {sys.executable} manage.py compare_csv_files -t {pathlib.Path(csv_file).stem} -fi {csv_from} -f2 {csv_to} -s {from_date.strftime("%Y-%m-%d")} -l {to_date.strftime("%Y-%m-%d")}')
                 proc = subprocess.run([sys.executable, 'manage.py', 'compare_csv_files', '-t',
-                                       pathlib.Path(csv_file).stem, '-f1', csv_from, '-f2', csv_to,
+                                       pathlib.Path(csv_file).stem.replace('-', '_'), '-f1', csv_from, '-f2', csv_to,
                                        '-s', from_date.strftime("%Y-%m-%d"), '-l', to_date.strftime("%Y-%m-%d")])
                 if proc.returncode != 0:
                     print(f'Error running {sys.executable} manage.py compare_csv_files -t {pathlib.Path(csv_file).stem} -fi {csv_from} -f2 {csv_to} -s {from_date.strftime("%Y-%m-%d")} -l {to_date.strftime("%Y-%m-%d")}', file=sys.stderr)

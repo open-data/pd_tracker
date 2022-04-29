@@ -1,6 +1,5 @@
 import os.path
 import sqlite3, pandas as pd
-from datetime import datetime, timezone
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 import logging
@@ -41,7 +40,7 @@ class Command(BaseCommand):
         parser.add_argument('-d', '--report_dir', type=str, help='The director where to write PD report files.', required=True)
 
     def handle(self, *args, **options):
-        table_name = options['table']
+        table_name = options['table'].replace('-', '_')
         try:
             if table_name == 'all':
                 # Obtain a set if the unique table names derived from the fields table

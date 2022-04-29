@@ -23,12 +23,14 @@ class Command(BaseCommand):
                 pk_fields = field_info['resources'][r]['primary_key']
                 table_fields = field_info['resources'][r]['fields']
 
+                # Use _ in place of - for table names
+                table_id = field_info['resources'][r]['resource_name'].replace('-', '_')
                 # Delete all existing fields for this table
                 PDTableField.objects.filter(table_id=field_info['resources'][r]['resource_name']).delete()
 
                 for field_order, field in enumerate(table_fields):
                     tbf, created = PDTableField.objects.update_or_create(
-                        table_id=field_info['resources'][r]['resource_name'],
+                        table_id=table_id,
                         field_name=field['id'],
                         field_order=field_order,
                         field_type=field['datastore_type'],
@@ -38,7 +40,7 @@ class Command(BaseCommand):
                     )
                     tbf.save()
                 tbf, created = PDTableField.objects.update_or_create(
-                    table_id=field_info['resources'][r]['resource_name'],
+                    table_id=table_id,
                     field_name="owner_org",
                     field_order=len(table_fields),
                     field_type="text",
@@ -49,7 +51,7 @@ class Command(BaseCommand):
                 # Note: The Open Data Inventory is an exception and does not audit fields
                 if table_name != "inventory":
                     tbf, created = PDTableField.objects.update_or_create(
-                        table_id=field_info['resources'][r]['resource_name'],
+                        table_id=table_id,
                         field_name="record_created",
                         field_order=len(table_fields) + 1,
                         field_type="text",
@@ -58,7 +60,7 @@ class Command(BaseCommand):
                         primary_key=False,
                     )
                     tbf, created = PDTableField.objects.update_or_create(
-                        table_id=field_info['resources'][r]['resource_name'],
+                        table_id=table_id,
                         field_name="record_modified",
                         field_order=len(table_fields) + 2,
                         field_type="text",
@@ -67,7 +69,7 @@ class Command(BaseCommand):
                         primary_key=False,
                     )
                     tbf, created = PDTableField.objects.update_or_create(
-                        table_id=field_info['resources'][r]['resource_name'],
+                        table_id=table_id,
                         field_name="user_modified",
                         field_order=len(table_fields) + 3,
                         field_type="text",
