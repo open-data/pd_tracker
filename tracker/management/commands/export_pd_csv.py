@@ -1,3 +1,4 @@
+import csv
 import os.path
 import sqlite3, pandas as pd
 from django.core.management.base import BaseCommand, CommandError
@@ -28,10 +29,10 @@ class Command(BaseCommand):
         report_file = os.path.join(report_dir, f'{table_name}_activity.csv')
         for chunk in pd.read_sql(f'SELECT * FROM "{table_name}"', self.conn, index_col=primary_key, chunksize=1000):
             if i == 0:
-                chunk.to_csv(report_file, index=True, header=True, mode='w')
+                chunk.to_csv(report_file, index=True, header=True, mode='w', encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
                 i = chunk.index.size
             else:
-                chunk.to_csv(report_file, mode='a', header=False, index=True)
+                chunk.to_csv(report_file, mode='a', header=False, index=True, encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
                 i += chunk.index.size
         self.logger.info(f'Exported {i} rows to {report_file}')
 

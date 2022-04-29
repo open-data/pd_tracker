@@ -144,3 +144,6 @@ cython_debug/
 
 # Application runtime files
 static/
+
+# Development environments
+.idea/
