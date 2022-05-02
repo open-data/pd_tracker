@@ -1,14 +1,38 @@
-import os.path
-import sqlite3, pandas as pd
 from datetime import datetime, timezone
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
+import hashlib
 import logging
+import os.path
 import pytz
+import sqlite3, pandas as pd
 from time import sleep
 from tracker.models import PDTableField, PDRunLog
 
 # Inspired by code from https://towardsdatascience.com/how-to-compare-large-files-f58982eccd3a
+
+
+def md5_hash(file_name):
+    block_size = 65536
+    md5_hasher = hashlib.md5()
+    with open(file_name, 'rb') as handle:
+        buf = handle.read(block_size)
+        while len(buf) > 0:
+            md5_hasher.update(buf)
+            buf = handle.read(block_size)
+    hash_value = md5_hasher.hexdigest()
+    logging.info(f'MD5 hash of {file_name} is {hash_value}')
+    return hash_value
+
+
+def compare_files(file_1, file_2):
+
+    if md5_hash(file_1) == md5_hash(file_2):
+        logging.info(f'Files {file_1} and {file_2} are identical and will not be compared.')
+        return True
+    else:
+        logging.info(f'{file_1} and {file_2} are not identical. Proceeding to detailed checks.')
+        return False
 
 
 def make_field_list(l1, alias='x'):
@@ -56,6 +80,8 @@ class Command(BaseCommand):
                             help='The date of the comparison target. Would normally correspond to the data of the second file.', required=True)
         parser.add_argument('-r', '--report_file', type=str, help='The PD report file. Appends to the file if it already exists',
                             required=False, default="")
+        parser.add_argument('-x', '--max_reliability', action='store_true', help='Flag to indicate if max SQLite reliability should be used.',
+                            required=False, default=False)
         parser.add_argument('-u', '--vacuum', action='store_true', help='Vacuum the SQLite database after the comparison is complete. Don\'t vacuum if you are running this command from a batch job.',
                             required=False, default=False)
 
@@ -63,6 +89,10 @@ class Command(BaseCommand):
 
         table_name = options['table'].replace('-', '_')
         csv_files = [options['first_file'], options['second_file']]
+
+        # Use file hashing to determine if the files are the same before comparing them.
+        if compare_files(options['first_file'], options['second_file']):
+            exit(0)
 
         # Look up the primary key for the table from the database
         pkeys = PDTableField.objects.filter(table_id=table_name, primary_key=True).order_by('field_order')
@@ -85,8 +115,13 @@ class Command(BaseCommand):
         conn = sqlite3.connect(str(settings.DATABASES['default']['NAME']))
         cur = conn.cursor()
         cur.execute("VACUUM")
-        cur.execute("PRAGMA synchronous = FULL")
-        cur.execute("PRAGMA journal_mode = WAL")
+
+        if options['max_reliability']:
+            cur.execute("PRAGMA synchronous = NORMAL")
+            cur.execute("PRAGMA journal_mode = WAL")
+        else:
+            cur.execute("PRAGMA synchronous = FULL")
+            cur.execute("PRAGMA journal_mode = DELETE")
 
         temp_tables = ["{0}_{1}".format(table_name, options["source_date"].strftime('%Y_%m_%d')).replace('-', '_'),
                        "{0}_{1}".format(table_name, options["log_date"].strftime('%Y_%m_%d')).replace('-', '_')]
@@ -97,7 +132,7 @@ class Command(BaseCommand):
                 cur.execute(f'DROP TABLE IF EXISTS {table}')
 
             # Read the CSV files into the temporary tables
-            chunk_size = 100
+            chunk_size = 500
             i = 0
             for file in csv_files:
                 self.logger.info(f'Reading {csv_files[i]} into {temp_tables[i]}')
@@ -105,7 +140,6 @@ class Command(BaseCommand):
                 for chunk in pd.read_csv(file, chunksize=chunk_size, delimiter=","):
                     chunk.columns = chunk.columns.str.replace(' ', '_')  # replacing spaces with underscores for column names
                     chunk.to_sql(name=temp_tables[i - 1], con=conn, if_exists='append')
-                    sleep(0.2)
 
             # Verify that the columns in both tables match
             temp_columns = []
@@ -161,12 +195,10 @@ class Command(BaseCommand):
             df1['log_date'] = options['log_date'].strftime('%Y-%m-%d')
             df1['log_activity'] = 'D'
             df1.set_index(primary_key)
-            sleep(0.1)
 
             df2['log_date'] = options['log_date'].strftime('%Y-%m-%d')
             df2['log_activity'] = 'A'
             df2.set_index(primary_key)
-            sleep(0.1)
 
             # if the export file name is not provided, then generate one using the table name abd the default export directory
             report_file = options['report_file'] if options['report_file'] else ""
@@ -178,14 +210,12 @@ class Command(BaseCommand):
                 if report_file:
                     df1.to_csv(report_file, mode='a', index=False, header=first_time)
                 df1.to_sql(table_name, con=conn, if_exists='append')
-                sleep(0.1)
 
             first_time = False if os.path.exists(report_file) else True
             if len(df2.index) > 0:
                 if report_file:
                     df2.to_csv(report_file, mode='a', index=False, header=first_time)
                 df2.to_sql(table_name, con=conn, if_exists='append')
-                sleep(0.1)
 
             change_query = ""
             for field in non_key_fields:
@@ -207,7 +237,6 @@ class Command(BaseCommand):
                 if report_file:
                     df3.to_csv(report_file, mode='a', index=False, header=first_time)
                 df3.to_sql(table_name, con=conn, if_exists='append')
-                sleep(0.1)
             local_tz = pytz.timezone(settings.TIME_ZONE)
             local_now = local_tz.localize(datetime.now())
             PDRunLog.objects.create(

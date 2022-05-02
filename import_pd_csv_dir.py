@@ -61,11 +61,10 @@ try:
             csv_to = os.path.join(temp_to_dir, csv_file)
 
             if os.path.exists(csv_from) and os.path.exists(csv_to):
-                #print(f'Compare {csv_from} for {from_date} to {csv_to} {to_date}')
                 print(f' Running {sys.executable} manage.py compare_csv_files -t {pathlib.Path(csv_file).stem} -fi {csv_from} -f2 {csv_to} -s {from_date.strftime("%Y-%m-%d")} -l {to_date.strftime("%Y-%m-%d")}')
                 proc = subprocess.run([sys.executable, 'manage.py', 'compare_csv_files', '-t',
                                        pathlib.Path(csv_file).stem.replace('-', '_'), '-f1', csv_from, '-f2', csv_to,
-                                       '-s', from_date.strftime("%Y-%m-%d"), '-l', to_date.strftime("%Y-%m-%d")])
+                                       '-s', from_date.strftime("%Y-%m-%d"), '-l', to_date.strftime("%Y-%m-%d"), '-x'])
                 if proc.returncode != 0:
                     print(f'Error running {sys.executable} manage.py compare_csv_files -t {pathlib.Path(csv_file).stem} -fi {csv_from} -f2 {csv_to} -s {from_date.strftime("%Y-%m-%d")} -l {to_date.strftime("%Y-%m-%d")}', file=sys.stderr)
         from_date = to_date
