@@ -4,6 +4,7 @@ from django.conf import settings
 import hashlib
 import logging
 import os.path
+from pd_tracker.ColourFormatter import ColourFormatter
 import pytz
 import sqlite3, pandas as pd
 from time import sleep
@@ -68,7 +69,13 @@ class Command(BaseCommand):
            "PD file must be from different dates specified at runtime. The command will compare the two files and " \
            "write out the saved line along with a log date and change type code (A, D, or C) for each line. This lines" \
            "are written to the specified CSV file and to a SQLite database."
+
     logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(ColourFormatter())
+    logger.addHandler(ch)
 
     def add_arguments(self, parser):
         parser.add_argument('-t', '--table', type=str, help='The Recombinant Type that is being loaded', required=True)
@@ -253,7 +260,7 @@ class Command(BaseCommand):
             self.logger.info(f'{table_name} completed: {len(df2.index)} rows added, {len(df1.index)} rows deleted, {len(df3.index)} rows updated')
 
         except Exception as e:
-            self.logger.error(f'Error processing table {table_name}')
+            self.logger.critical(f'Error processing table {table_name}')
             self.logger.error(e)
 
         finally:
