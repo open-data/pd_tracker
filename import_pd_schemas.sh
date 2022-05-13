@@ -8,7 +8,7 @@
 source ./venv/bin/activate
 
 declare -a pdtypes=("adminaircraft" "ati" "briefingt" "consultations" "contracts" "contractsa" \
-                    "dac", "experiment" "grants" "hospitalityq" "inventory" "nap" "qpnotes" \
+                    "dac" "experiment" "grants" "hospitalityq" "inventory" "nap" "qpnotes" \
                     "reclassification" "service" "travela" "travelq" "wrongdoing")
 
 # Call the Django custom command to re-read the schemas from the Open Canada portal.

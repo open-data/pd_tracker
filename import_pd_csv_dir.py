@@ -13,7 +13,13 @@ parser = argparse.ArgumentParser(description="Import call the csv files in a dir
 parser.add_argument("-d", "--data_dir", type=pathlib.Path, required=True,
                     help="The directory to write out the warehouse reports CSV files.")
 parser.add_argument("-1", "--latest_only", action='store_true', required=False, default=False,
-                    help="Only compare the last two CSV files.")
+                    help="Only compare the last two CSV files. This option cannot be selected when either a start or end data is specified.")
+parser.add_argument("--start_date", type=lambda s: datetime.strptime(s, '%Y-%m-%d'), required=False,
+                    action='store', help="The date to start the warehouse processing from. Format: YYYY-MM-DD")
+parser.add_argument("--end_date", type=lambda s: datetime.strptime(s, '%Y-%m-%d'), action='store', required=False,
+                    help="The date to stop on. If not specified, the script will run until the end of the directory. "
+                         "If no start date is specified, the script will run from the beginning of the directory. "
+                         "Format: YYYY-MM-DD")
 args = parser.parse_args()
 
 file_list = os.listdir(args.data_dir)
@@ -22,8 +28,16 @@ sorted_file_list.sort()
 if len(sorted_file_list) < 2:
     print("Not enough files in data directory.")
     sys.exit(1)
+if args.latest_only and (args.start_date or args.end_date):
+    print("Cannot use both --latest_only and --start_date or --end_date.")
+    sys.exit(1)
 if args.latest_only:
     sorted_file_list = sorted_file_list[-2:]
+else:
+    if args.start_date:
+        sorted_file_list = [x for x in sorted_file_list if args.start_date <= datetime.strptime(x[3:11], '%Y%m%d')]
+    if args.end_date:
+        sorted_file_list = [x for x in sorted_file_list if args.end_date >= datetime.strptime(x[3:11], '%Y%m%d')]
 
 from_file = ""
 to_file = ""
