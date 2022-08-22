@@ -9,18 +9,23 @@ import tarfile
 import tempfile
 
 
-parser = argparse.ArgumentParser(description="Import call the csv files in a directory.")
+parser = argparse.ArgumentParser(description="Import multiple csv files from an archive directory and running the compare_csv_files.py script",
+                                 epilog="This script assumes that a day's worth of PD CSV files are stored in a GZIP TAR file where each day's file "
+                                        "follows the file name convention: pd-YYYYMMDD.tar.gz where YYYYMMDD is the date of the CSV files in the "
+                                        "archive file. The archive file itself contains the PD CSV files published that day on Open Canada")
 parser.add_argument("-d", "--data_dir", type=pathlib.Path, required=True,
-                    help="The directory to write out the warehouse reports CSV files.")
+                    help="The directory where to find the warehouse reports CSV files. There must be at least 2 archive files to run the analysis.")
 parser.add_argument("-1", "--latest_only", action='store_true', required=False, default=False,
                     help="Only compare the last two CSV files. This option cannot be selected when either a start or end data is specified.")
 parser.add_argument("--start_date", type=lambda s: datetime.strptime(s, '%Y-%m-%d'), required=False,
-                    action='store', help="The date to start the warehouse processing from. Format: YYYY-MM-DD")
+                    action='store', help="The date to start the warehouse processing from. "
+                                         "If no start date is specified, the script will run from the beginning of the directory. Format: YYYY-MM-DD")
 parser.add_argument("--end_date", type=lambda s: datetime.strptime(s, '%Y-%m-%d'), action='store', required=False,
                     help="The date to stop on. If not specified, the script will run until the end of the directory. "
-                         "If no start date is specified, the script will run from the beginning of the directory. "
                          "Format: YYYY-MM-DD")
 args = parser.parse_args()
+
+# Get the list of archive files based on the user provided parameters
 
 file_list = os.listdir(args.data_dir)
 sorted_file_list = [x for x in file_list if x.endswith('.tar.gz')]
@@ -44,6 +49,8 @@ to_file = ""
 to_date = None
 from_date = None
 temp_from_dir = None
+
+# For each archive file, extract the contents to a temporary directory and call the compare_csv_files.py script
 
 try:
     for tar_file in sorted_file_list:
@@ -70,6 +77,9 @@ try:
 
         sorted_csv_list = os.listdir(temp_to_dir)
         sorted_csv_list.sort()
+
+        # Run the compare script for each file
+
         for csv_file in sorted_csv_list:
             csv_from = os.path.join(temp_from_dir, csv_file)
             csv_to = os.path.join(temp_to_dir, csv_file)

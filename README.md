@@ -5,10 +5,13 @@ CSV files collected by Open Canada.
 
 ### Requirements: 
 * Python 3.6 or higher
+* PostgreSQL database 
 
 ### Setup:
 
 Clone and download the source code from [GitHub]() and run the following commands:
+
+This application requites a PostgreSQL database. Create an empty PostgreSQL database
 
 ```bash
 python -m venv venv
@@ -37,10 +40,12 @@ Run the following command to load the field metadata for each PD type:
 ```bash
 python manage.py import_ckan_schema -t <pd_type>
 ```
+This command retrieves PD metadata directly from the portal.
 
-To view the field metadata for a PD type, create a new Django admin user and login to the admin site.
+To view the field metadata for a PD type, enable the admin applicatoin and create a new Django admin 
+user and login to the admin site.
 
-To run a PD CSV comparison, run the following command:
+To run a PD CSV comparison, use the `compare_csv_files` command:
 
 ```bash
 python manage.py --help
@@ -68,3 +73,5 @@ usage: manage.py compare_csv_files [-h] -t TABLE -f1 FIRST_FILE -f2 SECOND_FILE 
 python .\manage.py compare_csv_files --table adminaircraft --first_file data\20220329\adminaircraft.csv --second_file  data\20220330\adminaircraft.csv --source_date 2022-03-29 --log_date 2022-03-30 --report_file data\adminaircraft_activity_log.csv
 ```
 
+A Python script it provided, `import_pd_csv_dir.py`, that can be used to compare multiple dates at a time.
+This script assumes that 
