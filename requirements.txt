@@ -1,6 +1,8 @@
-Django==4.1
+Django==4.2.20
 pandas==1.4.3
 requests==2.28.1
 django-admin-interface==0.19.2
+psycopg2
+pyarrow
 pytz==2022.2.1
 SQLAlchemy~=1.4.40
