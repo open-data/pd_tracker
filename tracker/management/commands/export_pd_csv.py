@@ -13,7 +13,7 @@ class Command(BaseCommand):
     logger = logging.getLogger(__name__)
 
 
-    def export_type(self, table_name, report_dir):
+    def export_type(self, table_name, report_dir, cols:list):
         try:
             # Look up the primary key for the table from the database
             pkeys = PDTableField.objects.filter(table_id=table_name, primary_key=True).order_by('field_order')
@@ -29,8 +29,15 @@ class Command(BaseCommand):
             conn = eng.connect()
 
             i = 0
-            report_file = os.path.join(report_dir, f'{table_name}_activity.csv')
-            for chunk in pd.read_sql(f'SELECT * FROM "{table_name}"', conn, index_col=primary_key, chunksize=1000):
+            csv_filename = f'{table_name}_activity.csv'
+            if len(cols) > 0:
+                csv_filename = f'{table_name}_pd_activity.csv'
+            report_file = os.path.join(report_dir, csv_filename)
+            sql_query = f'SELECT * FROM "{table_name}"'          
+            if len(cols):
+                sql_query = f'SELECt {",".join(cols)} FROM {table_name}'
+
+            for chunk in pd.read_sql(sql_query, conn.connection, index_col=primary_key, chunksize=1000):
                 if i == 0:
                     chunk.to_csv(report_file, index=True, header=True, mode='w', encoding='utf-8-sig', quoting=csv.QUOTE_ALL)
                     i = chunk.index.size
@@ -43,7 +50,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('table', type=str, help='The Recombinant Type that to be exported. Use "all" to export all.')
-        parser.add_argument('-d', '--report_dir', type=str, help='The director where to write PD report files.', required=True)
+        parser.add_argument('-d', '--report_dir', type=str, help='The directory where to write PD report files.', required=True)
+        parser.add_argument('-f', '--filtered', action='store_true', help='Export filtered versions of some PD report files with limited columns')
 
     def handle(self, *args, **options):
         table_name = options['table'].replace('-', '_')
@@ -67,7 +75,17 @@ class Command(BaseCommand):
                     r = results.fetchone()
                     if not r['exists']:
                         continue
-                    self.export_type(table, options['report_dir'])
+                    self.export_type(table, options['report_dir'], [])
+
+                    # If filtered files requested, check to see if filter has been specified. Al NIL reports are automatically
+                    # excluded from this action.
+                    xfields = PDTableField.objects.filter(table_id=table, pd_export=True).order_by('field_order')
+                    if not table.endswith("_nil") and  xfields.count() > 0:
+                        cols = []
+                        for f in xfields:
+                            cols.append(f.field_name)
+                        self.export_type(table, options['report_dir'], cols=cols)
+                    
             else:
                 self.export_type(table_name, options['report_dir'])
         finally:

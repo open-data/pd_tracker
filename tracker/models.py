@@ -16,6 +16,7 @@ class PDTableField(models.Model):
     label_en = models.CharField(max_length=200)
     label_fr = models.CharField(max_length=200)
     primary_key = models.BooleanField(default=False)
+    pd_export = models.BooleanField(default=False)
 
     # Meta
     class Meta:
