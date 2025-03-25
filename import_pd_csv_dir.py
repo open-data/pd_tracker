@@ -15,6 +15,8 @@ parser = argparse.ArgumentParser(description="Import multiple csv files from an 
                                         "archive file. The archive file itself contains the PD CSV files published that day on Open Canada")
 parser.add_argument("-d", "--data_dir", type=pathlib.Path, required=True,
                     help="The directory where to find the warehouse reports CSV files. There must be at least 2 archive files to run the analysis.")
+parser.add_argument("-t", "--temp_dir", type=pathlib.Path, required=False, 
+                    help="Specify a temporary working directory, otherwise uses the system default")
 parser.add_argument("-1", "--latest_only", action='store_true', required=False, default=False,
                     help="Only compare the last two CSV files. This option cannot be selected when either a start or end data is specified.")
 parser.add_argument("--start_date", type=lambda s: datetime.strptime(s, '%Y-%m-%d'), required=False,
@@ -49,6 +51,7 @@ to_file = ""
 to_date = None
 from_date = None
 temp_from_dir = None
+temp_to_dir = None
 
 # For each archive file, extract the contents to a temporary directory and call the compare_csv_files.py script
 
@@ -59,7 +62,16 @@ try:
             continue
         to_file = tar_file
 
-        temp_to_dir = tempfile.mkdtemp()
+        # Verify the temporary working directory, if provided
+        if args.temp_dir:
+            if os.path.isdir(args.temp_dir):
+                temp_to_dir = tempfile.mkdtemp(prefix="import_od_", dir=args.temp_dir)
+            else:
+                print(f"Cannot find temporary working directory '{args.temp_dir}'")
+                exit(-1)
+        else:
+            temp_to_dir = tempfile.mkdtemp()
+
         print('Extracting {0} to {1}'.format(tar_file, temp_to_dir))
         tar = tarfile.open(os.path.join(args.data_dir, tar_file))
         tar.extractall(temp_to_dir)
