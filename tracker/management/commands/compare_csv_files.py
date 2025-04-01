@@ -6,7 +6,7 @@ import logging
 import os.path
 from pd_tracker.ColourFormatter import ColourFormatter
 import pytz
-from sqlalchemy import create_engine, TEXT
+from sqlalchemy import create_engine, text, TEXT
 import pandas as pd
 from tracker.models import PDTableField, PDRunLog
 
@@ -125,186 +125,187 @@ class Command(BaseCommand):
                        "{0}_{1}".format(table_name, options["log_date"].strftime('%Y_%m_%d')).replace('-', '_')]
         conn_string = f"postgresql+psycopg2://{str(settings.DATABASES['default']['USER'])}:{str(settings.DATABASES['default']['PASSWORD'])}@{str(settings.DATABASES['default']['HOST'])}/{str(settings.DATABASES['default']['NAME'])}"
         eng = create_engine(conn_string)
-        conn = eng.connect()
-        try:
-            # Clear out the temp files if they exist
-            for table in temp_tables:
-                conn.execute(f'DROP TABLE IF EXISTS {table}')
+        with eng.begin() as pgconn:
+            try:
+                # Clear out the temp files if they exist
 
-            # Read the CSV files into the temporary tables
+                for table in temp_tables:
+                    pgconn.execute(text(f'DROP TABLE IF EXISTS {table}'))
 
-            chunk_size = 1000
-            i = 0
-            for file in csv_files:
-                self.logger.info(f'Reading {csv_files[i]} into {temp_tables[i]}')
-                i = i + 1
-                for chunk in pd.read_csv(file, chunksize=chunk_size, delimiter=",", dtype=str):
-                    chunk.columns = chunk.columns.str.replace(' ', '_')  # replacing spaces with underscores for column names
-                    chunk.to_sql(name=temp_tables[i - 1], con=conn, if_exists='append', dtype=TEXT, index=False)
+                # Read the CSV files into the temporary tables
 
-            # Verify that the columns in both tables match
+                chunk_size = 1000
+                i = 0
+                for file in csv_files:
+                    self.logger.info(f'Reading {csv_files[i]} into {temp_tables[i]}')
+                    i = i + 1
+                    for chunk in pd.read_csv(file, chunksize=chunk_size, delimiter=",", dtype=str, header=0, on_bad_lines="skip"):
+                        chunk.columns = chunk.columns.str.replace(' ', '_')  # replacing spaces with underscores for column names
+                        chunk.to_sql(name=temp_tables[i - 1], con=pgconn, if_exists='append', index=False)
 
-            temp_columns = []
-            column_names = []
-            for i, t in enumerate(temp_tables):
-                results = conn.execute(f"select column_name from information_schema.columns where table_name = '{t}'")
+                # Verify that the columns in both tables match
+
+                temp_columns = []
                 column_names = []
+                for i, t in enumerate(temp_tables):
+                    results = pgconn.execute(text(f"select column_name from information_schema.columns where table_name = '{t}'"))
+                    column_names = []
+                    for row in results:
+                        column_names.append(row[0])
+                    temp_columns.append(column_names)
+
+                # Bail if the columns don't match - this condition voids the comparison
+
+                if set(temp_columns[0]) != set(temp_columns[1]):
+                    raise Exception(f"The columns in the {t} table do not match the columns in the {table_name} definition.")
+
+                # create a list of non-primary key fields that actually in the file. This is based on the fields that were read
+                # in from the file. The PD database should hold the latest definition, but older CSV files may not have fewer columns
+
+                std_fields = []
+                for f in non_key_fields:
+                    if f in column_names:
+                        std_fields.append(f)
+
+                # create indexes to accelerate queries
+
+                self.logger.info(f'Creating indexes for {temp_tables[0]} and {temp_tables[1]}')
+                pgconn.execute(text(f'DROP INDEX IF EXISTS pk_index_{temp_tables[0]}'))
+                pgconn.execute(text(f'DROP INDEX IF EXISTS pk_index_{temp_tables[1]}'))
+                pgconn.execute(text(f'CREATE INDEX pk_index_{temp_tables[0]} on {temp_tables[0]} ({", ".join(primary_key)})'))
+                pgconn.execute(text(f'CREATE INDEX pk_index_{temp_tables[1]} on {temp_tables[1]} ({", ".join(primary_key)})'))
+
+                # Normally you would not build queries using strings, but the key values are coming from the config database
+
+                for key in primary_key:
+                    if key == primary_key[0]:
+                        joinstatement = f'x.{key} = y.{key}'
+                        wherestatement = f' WHERE y.{key} IS NULL'
+                        wherenotstatement = f' WHERE y.{key} IS NOT NULL'
+                    else:
+                        joinstatement += f' AND x.{key} = y.{key}'
+                        wherestatement += f' AND y.{key} IS NULL'
+                        wherenotstatement += f' AND y.{key} IS NOT NULL'
+
+                # Log some information about the two CSV files
+
+                self.logger.info('Total CSV Row Counts')
+                statement_counts = f"SELECT 'one', COUNT(*) FROM {temp_tables[0]} UNION SELECT 'two', COUNT(*) FROM {temp_tables[1]}"
+                results = pgconn.execute(text(statement_counts))
+                i = 0
+
+                # Note: loop indexing will not compatible with older versions of Python 3
                 for row in results:
-                    column_names.append(row['column_name'])
-                temp_columns.append(column_names)
+                    self.logger.info(f'{temp_tables[i]}: {row[1]}')
+                    i += 1
+                self.logger.info('Checking got new and deleted rows based on data Key.')
 
-            # Bail if the columns don't match - this condition voids the comparison
+                # Build the comparison query
 
-            if set(temp_columns[0]) != set(temp_columns[1]):
-                raise Exception(f"The columns in the {t} table do not match the columns in the {table_name} definition.")
+                if "owner_org_title" in column_names:
+                    column_names.remove("owner_org_title")
+                t1 = ",".join(list(map(lambda s: 'x.' + s, column_names)))
+                t2 = ",".join(list(map(lambda s: 'x.' + s, column_names)))
+                statement1 = f'SELECT {t1} FROM "{temp_tables[0]}" x LEFT JOIN "{temp_tables[1]}" y ON {joinstatement} {wherestatement}'
+                statement2 = f'SELECT {t2} FROM "{temp_tables[1]}" x LEFT JOIN "{temp_tables[0]}" y ON  {joinstatement} {wherestatement}'
 
-            # create a list of non-primary key fields that actually in the file. This is based on the fields that were read
-            # in from the file. The PD database should hold the latest definition, but older CSV files may not have fewer columns
+                # Delete any rows associated with the log date being processed - these will be replaced. First check to see if the table exists
 
-            std_fields = []
-            for f in non_key_fields:
-                if f in column_names:
-                    std_fields.append(f)
+                statement_ruthere = f"SELECT EXISTS(SELECT FROM pg_tables WHERE schemaname = 'public' and tablename = '{table_name}')"
+                results = pgconn.execute(text(statement_ruthere))
+                r = results.fetchone()
+                if r[0]:
+                    self.logger.info(f'Deleting rows from {table_name} based on {options["log_date"]}')
+                    log_date_str = options["log_date"].strftime("%Y-%m-%d")
+                    statement_delete = f"DELETE FROM {table_name} WHERE log_date = '{log_date_str}'"
+                    pgconn.execute(text(statement_delete))
 
-            # create indexes to accelerate queries
+                # Running row matching queries to determine additions and deletions
 
-            self.logger.info(f'Creating indexes for {temp_tables[0]} and {temp_tables[1]}')
-            conn.execute(f'DROP INDEX IF EXISTS pk_index_{temp_tables[0]}')
-            conn.execute(f'DROP INDEX IF EXISTS pk_index_{temp_tables[1]}')
-            conn.execute(f'CREATE INDEX pk_index_{temp_tables[0]} on {temp_tables[0]} ({", ".join(primary_key)})')
-            conn.execute(f'CREATE INDEX pk_index_{temp_tables[1]} on {temp_tables[1]} ({", ".join(primary_key)})')
+                primary_key.append('log_date')
+                df1 = pd.read_sql(statement1, pgconn)
+                df2 = pd.read_sql(statement2, pgconn)
+                df1['log_date'] = options['log_date'].strftime('%Y-%m-%d')
+                df1['log_activity'] = 'D'
+                df1.set_index(primary_key)
 
-            # Normally you would not build queries using strings, but the key values are coming from the config database
+                df2['log_date'] = options['log_date'].strftime('%Y-%m-%d')
+                df2['log_activity'] = 'A'
+                df2.set_index(primary_key)
 
-            for key in primary_key:
-                if key == primary_key[0]:
-                    joinstatement = f'x.{key} = y.{key}'
-                    wherestatement = f' WHERE y.{key} IS NULL'
-                    wherenotstatement = f' WHERE y.{key} IS NOT NULL'
-                else:
-                    joinstatement += f' AND x.{key} = y.{key}'
-                    wherestatement += f' AND y.{key} IS NULL'
-                    wherenotstatement += f' AND y.{key} IS NOT NULL'
+                # if the export file name is not provided, then generate one using the table name abd the default export directory
 
-            # Log some information about the two CSV files
+                report_file = options['report_file'] if options['report_file'] else ""
+                if not report_file and settings.EXPORT_TO_CSV_BY_DEFAULT:
+                    report_file = os.path.join(settings.DEFAULT_CSV_EXPORT_DIR, f'{table_name}_activity.csv')
 
-            self.logger.info('Total CSV Row Counts')
-            statement_counts = f"SELECT 'one', COUNT(*) FROM {temp_tables[0]} UNION SELECT 'two', COUNT(*) FROM {temp_tables[1]}"
-            results = conn.execute(statement_counts)
-            i = 0
+                # Report on additions and deletions
 
-            # Note: loop indexing will not compatible with older versions of Python 3
-            for row in results:
-                self.logger.info(f'{temp_tables[i]}: {row["count"]}')
-                i += 1
-            self.logger.info('Checking got new and deleted rows based on data Key.')
+                first_time = False if os.path.exists(report_file) else True
+                if len(df1.index) > 0:
+                    if report_file:
+                        df1.to_csv(report_file, mode='a', index=False, header=first_time)
+                    df1.to_sql(table_name, con=pgconn, if_exists='append', dtype=TEXT, index=False)
 
-            # Build the comparison query
+                first_time = False if os.path.exists(report_file) else True
+                if len(df2.index) > 0:
+                    if report_file:
+                        df2.to_csv(report_file, mode='a', index=False, header=first_time)
+                    df2.to_sql(table_name, con=pgconn, if_exists='append', dtype=TEXT, index=False)
 
-            if "owner_org_title" in column_names:
-                column_names.remove("owner_org_title")
-            t1 = ",".join(list(map(lambda s: 'x.' + s, column_names)))
-            t2 = ",".join(list(map(lambda s: 'x.' + s, column_names)))
-            statement1 = f'SELECT {t1} FROM "{temp_tables[0]}" x LEFT JOIN "{temp_tables[1]}" y ON {joinstatement} {wherestatement}'
-            statement2 = f'SELECT {t2} FROM "{temp_tables[1]}" x LEFT JOIN "{temp_tables[0]}" y ON  {joinstatement} {wherestatement}'
+                # Running row matching query to determine what rows have changed
 
-            # Delete any rows associated with the log date being processed - these will be replaced. First check to see if the table exists
+                change_query = ""
+                for field in std_fields:
+                    change_query += f"(x.{field} <> y.{field}) OR "
+                change_fields = make_field_list(column_names, 'y')
+                statement3 = f'''SELECT {change_fields} FROM {temp_tables[0]} x
+                                        JOIN {temp_tables[1]} y ON {joinstatement} {wherenotstatement}
+                                        AND ({change_query[:-4]})'''
 
-            statement_ruthere = f"SELECT EXISTS(SELECT FROM pg_tables WHERE schemaname = 'public' and tablename = '{table_name}')"
-            results = conn.execute(statement_ruthere)
-            r = results.fetchone()
-            if r['exists']:
-                self.logger.info(f'Deleting rows from {table_name} based on {options["log_date"]}')
-                log_date_str = options["log_date"].strftime("%Y-%m-%d")
-                statement_delete = f"DELETE FROM {table_name} WHERE log_date = '{log_date_str}'"
-                conn.execute(statement_delete)
+                self.logger.info('Checking for changed rows based on data key.')
 
-            # Running row matching queries to determine additions and deletions
+                df3 = pd.read_sql(statement3, pgconn,)
 
-            primary_key.append('log_date')
-            df1 = pd.read_sql(statement1, conn)
-            df2 = pd.read_sql(statement2, conn)
-            df1['log_date'] = options['log_date'].strftime('%Y-%m-%d')
-            df1['log_activity'] = 'D'
-            df1.set_index(primary_key)
+                df3['log_date'] = options['log_date'].strftime('%Y-%m-%d')
+                df3['log_activity'] = 'C'
+                df3.set_index(primary_key)
 
-            df2['log_date'] = options['log_date'].strftime('%Y-%m-%d')
-            df2['log_activity'] = 'A'
-            df2.set_index(primary_key)
+                # Report on changes
 
-            # if the export file name is not provided, then generate one using the table name abd the default export directory
+                first_time = False if os.path.exists(report_file) else True
+                if len(df3.index) > 0:
+                    if report_file:
+                        df3.to_csv(report_file, mode='a', index=False, header=first_time)
+                    df3.to_sql(table_name, con=pgconn, if_exists='append', dtype=TEXT, index=False)
 
-            report_file = options['report_file'] if options['report_file'] else ""
-            if not report_file and settings.EXPORT_TO_CSV_BY_DEFAULT:
-                report_file = os.path.join(settings.DEFAULT_CSV_EXPORT_DIR, f'{table_name}_activity.csv')
+                # Log the PD tracker run to the intenal database
 
-            # Report on additions and deletions
+                local_tz = pytz.timezone(settings.TIME_ZONE)
+                local_now = local_tz.localize(datetime.now())
+                PDRunLog.objects.create(
+                    table_id=table_name,
+                    file_from=options['first_file'],
+                    file_to=options['second_file'],
+                    activity_date=local_now,
+                    log_date=local_tz.localize(options['log_date']),
+                    report_file=report_file,
+                    rows_added=len(df2.index),
+                    rows_deleted=len(df1.index),
+                    rows_updated=len(df3.index),
+                )
+                self.logger.info(f'{table_name} completed: {len(df2.index)} rows added, {len(df1.index)} rows deleted, {len(df3.index)} rows updated')
 
-            first_time = False if os.path.exists(report_file) else True
-            if len(df1.index) > 0:
-                if report_file:
-                    df1.to_csv(report_file, mode='a', index=False, header=first_time)
-                df1.to_sql(table_name, con=conn, if_exists='append', dtype=TEXT, index=False)
+            except Exception as e:
+                self.logger.critical(f'Error processing table {table_name}')
+                self.logger.error(e)
 
-            first_time = False if os.path.exists(report_file) else True
-            if len(df2.index) > 0:
-                if report_file:
-                    df2.to_csv(report_file, mode='a', index=False, header=first_time)
-                df2.to_sql(table_name, con=conn, if_exists='append', dtype=TEXT, index=False)
-
-            # Running row matching query to determine what rows have changed
-
-            change_query = ""
-            for field in std_fields:
-                change_query += f"(x.{field} <> y.{field}) OR "
-            change_fields = make_field_list(column_names, 'y')
-            statement3 = f'''SELECT {change_fields} FROM {temp_tables[0]} x
-                                       JOIN {temp_tables[1]} y ON {joinstatement} {wherenotstatement}
-                                       AND ({change_query[:-4]})'''
-
-            self.logger.info('Checking for changed rows based on data key.')
-
-            df3 = pd.read_sql(statement3, conn,)
-
-            df3['log_date'] = options['log_date'].strftime('%Y-%m-%d')
-            df3['log_activity'] = 'C'
-            df3.set_index(primary_key)
-
-            # Report on changes
-
-            first_time = False if os.path.exists(report_file) else True
-            if len(df3.index) > 0:
-                if report_file:
-                    df3.to_csv(report_file, mode='a', index=False, header=first_time)
-                df3.to_sql(table_name, con=conn, if_exists='append', dtype=TEXT, index=False)
-
-            # Log the PD tracker run to the intenal database
-
-            local_tz = pytz.timezone(settings.TIME_ZONE)
-            local_now = local_tz.localize(datetime.now())
-            PDRunLog.objects.create(
-                table_id=table_name,
-                file_from=options['first_file'],
-                file_to=options['second_file'],
-                activity_date=local_now,
-                log_date=local_tz.localize(options['log_date']),
-                report_file=report_file,
-                rows_added=len(df2.index),
-                rows_deleted=len(df1.index),
-                rows_updated=len(df3.index),
-            )
-            self.logger.info(f'{table_name} completed: {len(df2.index)} rows added, {len(df1.index)} rows deleted, {len(df3.index)} rows updated')
-
-        except Exception as e:
-            self.logger.critical(f'Error processing table {table_name}')
-            self.logger.error(e)
-
-        finally:
-            for table in temp_tables:
-                conn.execute(f'DROP TABLE {table}')
-            if options['vacuum']:
-                conn.execute('VACUUM')
-            conn.close()
+            finally:
+                for table in temp_tables:
+                    pgconn.execute(text(f'DROP TABLE {table}'))
+                if options['vacuum']:
+                    pgconn.executetext(('VACUUM'))
+                pgconn.close()
 
 
 

@@ -20,8 +20,8 @@ $s1 = $source_date.ToString("yyyy-MM-dd")
 echo "Target (To) Date:   $t1"
 echo "Source (From) Date: $s1"
 
-$pdtypes = @("adminaircraft","ati","ati-nil","briefingt","consultations","contracts","contracts-nil","contractsa",`
- "dac","experiment","grants","grants-nil","hospitalityq","hospitalityq-nil","inventory","nap","qpnotes",`
+$pdtypes = @("adminaircraft","ati","ati-nil","briefingt","briefingt-nil", "consultations","contracts","contracts-nil","contractsa",`
+ "dac","experiment","grants","grants-nil","hospitalityq","hospitalityq-nil","inventory","nap","qpnotes","qpnotes-nil",`
  "reclassification", "reclassification-nil","service","service-std","travela","travelq","travelq-nil","wrongdoing")
 
 $folder1 = $source_date.ToString("yyyyMMdd")
