@@ -303,6 +303,7 @@ class Command(BaseCommand):
             finally:
                 for table in temp_tables:
                     pgconn.execute(text(f'DROP TABLE IF EXISTS {table} CASCADE'))
+                pgconn.commit()
                 if options['vacuum']:
                     pgconn.executetext(('VACUUM'))
                 pgconn.close()
